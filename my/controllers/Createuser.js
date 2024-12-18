@@ -1,17 +1,16 @@
-
 const express = require('express');
 const dataClient = require('../Config/ConnectDatabase'); // Ensure the path is correct
 const { sendOTP } = require('../Utils/sendOTP');
 
 dataClient.connect(); // Establish the connection here once
 
- // Ensure your email utility is correctly implemented
+// Ensure your email utility is correctly implemented
 
 exports.Createuser = async (req, res, next) => {
-    const { userName, motherName, mailId, studentClass } = req.body;
+    const { userName, motherName, mailId, password, studentClass } = req.body;
 
-    // Validate required fields
-    if (!userName || !motherName || !mailId || !studentClass) {
+    // Check if all necessary fields are provided
+    if (!userName || !motherName || !mailId || !password || !studentClass) {
         return res.status(400).json({
             success: false,
             message: "All fields are required!",
@@ -19,38 +18,47 @@ exports.Createuser = async (req, res, next) => {
     }
 
     try {
-        // Generate a random OTP to use as the password
-        const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
-        const otp = generateOTP();
+        // Check if the email already exists
+        const emailCheckQuery = `SELECT "mailId" FROM public.usertable WHERE "mailId" = $1;`;
+        const emailCheckResult = await dataClient.query(emailCheckQuery, [mailId]);
 
-        // Insert user details into the database
+        if (emailCheckResult.rows.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email already in use!',
+            });
+        }
+
+        // Prepare the SQL query (corrected query, added password)
         const query = `
             INSERT INTO public.usertable(
-                "userName", "motherName", "mailId", password, "studentClass"
+                "userName", "motherName", "mailId", "password", "studentClass"
             ) VALUES ($1, $2, $3, $4, $5)
-            RETURNING "userId";
+            RETURNING "userId";  -- Return the generated userId
         `;
 
-        const result = await dataClient.query(query, [userName, motherName, mailId, otp, studentClass]);
+        // Execute the query with the provided values
+        const result = await dataClient.query(query, [
+            userName, 
+            motherName, 
+            mailId, 
+            password, 
+            studentClass
+        ]);
+
+        // Retrieve the generated userId
         const userId = result.rows[0].userId;
 
-        // Respond with success
-        res.status(201).json({
+        // Send success response with userId only after successful insertion
+        return res.status(201).json({
             success: true,
             message: 'User created successfully!',
-            userId: userId,
+            userId: userId, // Optionally send back the generated userId
         });
 
-        // Send the OTP via email
-        try {
-            await sendOTP(mailId, otp);
-            console.log(`OTP sent successfully to ${mailId}`);
-        } catch (emailError) {
-            console.error('Error sending OTP email:', emailError);
-        }
     } catch (error) {
-        console.error('Error creating user:', error);
-        res.status(500).json({
+        console.error('Error inserting user:', error);
+        return res.status(500).json({
             success: false,
             message: 'Server error. Could not create user.',
         });
