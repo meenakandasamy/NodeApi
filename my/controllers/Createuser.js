@@ -1,13 +1,17 @@
+
 const express = require('express');
-const dataClient = require('../Config/ConnectDatabase');  // Ensure the path is correct
+const dataClient = require('../Config/ConnectDatabase'); // Ensure the path is correct
+const { sendOTP } = require('../Utils/sendOTP');
 
 dataClient.connect(); // Establish the connection here once
 
-exports.Createuser = async (req, res, next) => {
-    const { userName, motherName, mailId, password, studentClass } = req.body;
+ // Ensure your email utility is correctly implemented
 
-    // Check if all necessary fields are provided
-    if (!userName || !motherName || !mailId || !password || !studentClass) {
+exports.Createuser = async (req, res, next) => {
+    const { userName, motherName, mailId, studentClass } = req.body;
+
+    // Validate required fields
+    if (!userName || !motherName || !mailId || !studentClass) {
         return res.status(400).json({
             success: false,
             message: "All fields are required!",
@@ -15,28 +19,37 @@ exports.Createuser = async (req, res, next) => {
     }
 
     try {
-        // Prepare the SQL query (no need to insert userId)
+        // Generate a random OTP to use as the password
+        const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
+        const otp = generateOTP();
+
+        // Insert user details into the database
         const query = `
             INSERT INTO public.usertable(
                 "userName", "motherName", "mailId", password, "studentClass"
             ) VALUES ($1, $2, $3, $4, $5)
-            RETURNING "userId";  -- Return the generated userId
+            RETURNING "userId";
         `;
 
-        // Execute the query with the provided values
-        const result = await dataClient.query(query, [userName, motherName, mailId, password, studentClass]);
-
-        // Retrieve the generated userId
+        const result = await dataClient.query(query, [userName, motherName, mailId, otp, studentClass]);
         const userId = result.rows[0].userId;
 
-        // Send success response
+        // Respond with success
         res.status(201).json({
             success: true,
             message: 'User created successfully!',
-            userId: userId,  // Optionally send back the generated userId
+            userId: userId,
         });
+
+        // Send the OTP via email
+        try {
+            await sendOTP(mailId, otp);
+            console.log(`OTP sent successfully to ${mailId}`);
+        } catch (emailError) {
+            console.error('Error sending OTP email:', emailError);
+        }
     } catch (error) {
-        console.error('Error inserting user:', error);
+        console.error('Error creating user:', error);
         res.status(500).json({
             success: false,
             message: 'Server error. Could not create user.',
